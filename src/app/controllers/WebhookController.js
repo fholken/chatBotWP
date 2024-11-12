@@ -1,5 +1,6 @@
 import { MessagingService } from '../services/MessagingService.js';
 import { config } from '../../config/environment.js';
+import OpenAIServices from '../services/OpenAIServices.js';
 
 const messagingService = new MessagingService();
 
@@ -7,6 +8,7 @@ export class WebhookController {
 
   constructor() {
     this.appointmentState = {};
+    this.assistandState = {};
   }
   async handleWebhookPost(req, res) {
     console.log("Incoming webhook message:", JSON.stringify(req.body, null, 2));
@@ -18,7 +20,9 @@ export class WebhookController {
       if (this.isGreeting(incomingMessage)) {
         await this.sendWelcomeMessage(message.from, message.id, senderInfo);
         await this.sendWelcomeMenu(message.from);
-      } 
+      } else if (this.assistandState[message.from]) {
+        await this.handleAssistandFlow(message.from, incomingMessage);
+      }
       // else {
       //   await messagingService.replyToMessage(message); // Replicar el mensaje de texto a través de WhatsApp
       // }
@@ -74,8 +78,9 @@ export class WebhookController {
         response = "Veo que estas interesado en comprar";
         break;
       case "option_2":
-        response = "Veo que estas interesado en consultar";
-        break;
+        this.assistandState[to] = { step: 'question' };
+        response = "Realiza tu consulta";
+        break
       case "option_3":
         response = "Veo que estas interesado en consultar distribuidores";
         break;
@@ -84,6 +89,27 @@ export class WebhookController {
         break;
     }
     await messagingService.sendMessage(to, response);
+  }
+
+  async handleAssistandFlow(to, message) {
+    const state = this.assistandState[to];
+    let response;
+
+    const menuMessage = "¿La respuesta fue de tu ayuda?"
+    const buttons = [
+      { type: 'reply', reply: { id: 'option_4', title: "Si, Gracias" } },
+      { type: 'reply', reply: { id: 'option_5', title: 'Hacer otra pregunta' } },
+      { type: 'reply', reply: { id: 'option_6', title: 'Emergencia' } }
+    ];
+
+    if (state.step === 'question') {
+      response = await OpenAIServices.generateImage(message);
+    }
+    console.log(response);
+
+    delete this.assistandState[to];
+    await messagingService.sendMessage(to, response);
+    await messagingService.sendInteractiveButtons(to, menuMessage, buttons);
   }
 
 }
